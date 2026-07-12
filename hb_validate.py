@@ -39,29 +39,36 @@ from hb_reduction import (
     sigma_3max_from_application,
 )
 
-_PASSED = 0
-_FAILED = 0
-_INFO = 0
+class ValidationResult:
+    """验证结果收集器（替代全局变量，线程安全）"""
 
+    def __init__(self):
+        self.passed = 0
+        self.failed = 0
+        self.info_count = 0
 
-def check(name, got, ref, tol=1e-3, rel=True, tag=""):
-    global _PASSED, _FAILED
-    if rel and abs(ref) > 1e-12:
-        err = abs(got - ref) / abs(ref)
-    else:
-        err = abs(got - ref)
-    ok = err <= tol
-    _PASSED += ok
-    _FAILED += (not ok)
-    flag = "PASS" if ok else "FAIL"
-    print(f"  [{flag}] {tag}{name:34s} got={got:12.6f}  ref={ref:12.6f}  err={err:.2e}")
-    return ok
+    def check(self, name, got, ref, tol=1e-3, rel=True, tag=""):
+        if rel and abs(ref) > 1e-12:
+            err = abs(got - ref) / abs(ref)
+        else:
+            err = abs(got - ref)
+        ok = err <= tol
+        self.passed += ok
+        self.failed += (not ok)
+        flag = "PASS" if ok else "FAIL"
+        print(f"  [{flag}] {tag}{name:34s} got={got:12.6f}  ref={ref:12.6f}  err={err:.2e}")
+        return ok
 
+    def info(self, msg):
+        self.info_count += 1
+        print(f"  [INFO] {msg}")
 
-def info(msg):
-    global _INFO
-    _INFO += 1
-    print(f"  [INFO] {msg}")
+    def summary(self) -> str:
+        return f"PASS={self.passed}  FAIL={self.failed}  INFO={self.info_count}"
+
+    @property
+    def all_passed(self) -> bool:
+        return self.failed == 0
 
 
 # ---------------------------------------------------------------------------
@@ -138,30 +145,30 @@ def load_xlsx_cases(path):
 # ---------------------------------------------------------------------------
 # 验证 1: 核心参数对照 xlsx
 # ---------------------------------------------------------------------------
-def validate_core_vs_xlsx(cases):
+def validate_core_vs_xlsx(cases, vr: ValidationResult):
     print("\n=== 验证1: 核心强度参数 (mb, s, a, σt, σcm) 对照 xlsx ===")
     if not cases:
-        info("未找到 xlsx，跳过（请放置 HB折减.xlsx 于工作目录）")
+        vr.info("未找到 xlsx，跳过（请放置 HB折减.xlsx 于工作目录）")
         return
     for c in cases:
         hb = HBParameters(c["sigma_ci"], c["gsi"], c["mi"], c["D"]).compute()
         tag = f"[{c['sheet']}!R{c['row']}] "
-        check("mb", hb.mb, c["mb"], tol=1e-4, tag=tag)
-        check("s", hb.s, c["s"], tol=1e-4, tag=tag)
-        check("a", hb.a, c["a"], tol=1e-4, tag=tag)
+        vr.check("mb", hb.mb, c["mb"], tol=1e-4, tag=tag)
+        vr.check("s", hb.s, c["s"], tol=1e-4, tag=tag)
+        vr.check("a", hb.a, c["a"], tol=1e-4, tag=tag)
         if c["sigma_t"] is not None:
-            check("σt", hb.sigma_t, c["sigma_t"], tol=1e-3, tag=tag)
+            vr.check("σt", hb.sigma_t, c["sigma_t"], tol=1e-3, tag=tag)
         if c["sigma_cm"] is not None:
-            check("σcm", hb.sigma_cm, c["sigma_cm"], tol=1e-3, tag=tag)
+            vr.check("σcm", hb.sigma_cm, c["sigma_cm"], tol=1e-3, tag=tag)
 
 
 # ---------------------------------------------------------------------------
 # 验证 2: eq.12/13 公式对照 xlsx（用 xlsx 自身 σ3max 隔离公式正确性）
 # ---------------------------------------------------------------------------
-def validate_mc_formula_vs_xlsx(cases):
+def validate_mc_formula_vs_xlsx(cases, vr: ValidationResult):
     print("\n=== 验证2: 等效MC公式 eq.12/13 对照 xlsx（喂入 xlsx σ3max）===")
     if not cases:
-        info("未找到 xlsx，跳过")
+        vr.info("未找到 xlsx，跳过")
         return
     for c in cases:
         if c["s3max_sheet"] is None or c["phi_sheet"] is None:
@@ -170,30 +177,30 @@ def validate_mc_formula_vs_xlsx(cases):
         mc = MohrCoulombEquivalent(c["sigma_ci"], c["mb"], c["s"], c["a"],
                                    sigma_3max=c["s3max_sheet"]).compute()
         # 与 xlsx 报告值
-        check("φ' [vs xlsx]", mc.phi_eq, c["phi_sheet"], tol=5e-2, tag=tag)
-        check("c' [vs xlsx] (kPa)", mc.c_eq, c["c_sheet_mpa"] * 1000.0,
+        vr.check("φ' [vs xlsx]", mc.phi_eq, c["phi_sheet"], tol=5e-2, tag=tag)
+        vr.check("c' [vs xlsx] (kPa)", mc.c_eq, c["c_sheet_mpa"] * 1000.0,
               tol=5e-2, rel=False, tag=tag)
         # 与独立重转录（防笔误）
         c_ref, phi_ref = mc_closed_form_ref(c["sigma_ci"], c["mb"], c["s"], c["a"], c["s3max_sheet"])
-        check("φ' [vs 重转录]", mc.phi_eq, phi_ref, tol=1e-9, rel=False, tag=tag)
-        check("c' [vs 重转录] (kPa)", mc.c_eq, c_ref, tol=1e-9, rel=False, tag=tag)
+        vr.check("φ' [vs 重转录]", mc.phi_eq, phi_ref, tol=1e-9, rel=False, tag=tag)
+        vr.check("c' [vs 重转录] (kPa)", mc.c_eq, c_ref, tol=1e-9, rel=False, tag=tag)
 
 
 # ---------------------------------------------------------------------------
 # 验证 3: 论文经典算例（eq.18 σ3max + eq.12/13，RocLab/论文对齐）
 # ---------------------------------------------------------------------------
-def validate_paper_canonical():
+def validate_paper_canonical(vr: ValidationResult):
     print("\n=== 验证3: 论文经典算例 (σci=50, mi=10, GSI=45, D=0, 隧道100m) ===")
     hb = HBParameters(50.0, 45.0, 10.0, 0.0).compute()
-    check("mb", hb.mb, 1.4026, tol=1e-3)
-    check("s", hb.s, 0.002218, tol=1e-3)
-    check("a", hb.a, 0.5081, tol=1e-3)
+    vr.check("mb", hb.mb, 1.4026, tol=1e-3)
+    vr.check("s", hb.s, 0.002218, tol=1e-3)
+    vr.check("a", hb.a, 0.5081, tol=1e-3)
     gamma, H = 0.027, 100.0
     s3max = sigma_3max_from_application(hb.sigma_cm, gamma, H, "tunnel")
-    info(f"eq.18 计算 σ3max = {s3max:.4f} MPa (γH={gamma*H:.2f} MPa)")
+    vr.info(f"eq.18 计算 σ3max = {s3max:.4f} MPa (γH={gamma*H:.2f} MPa)")
     mc = MohrCoulombEquivalent(50.0, hb.mb, hb.s, hb.a, sigma_3max=s3max).compute()
-    info(f"本引擎 eq.18 结果: φ'={mc.phi_eq:.2f}°, c'={mc.c_eq/1000:.3f} MPa")
-    info("论文报告值: φ'=47.16°, c'=0.58 MPa  (eq.18 为拟合曲线, σ3max 略小致 φ'/c' 略低)")
+    vr.info(f"本引擎 eq.18 结果: φ'={mc.phi_eq:.2f}°, c'={mc.c_eq/1000:.3f} MPa")
+    vr.info("论文报告值: φ'=47.16°, c'=0.58 MPa  (eq.18 为拟合曲线, σ3max 略小致 φ'/c' 略低)")
     # 根求论文隐含 σ3max: 使 eq.12 给出 φ'=47.16°
     # 注意 φ' 随 σ3max 增大而单调递减
     target = math.radians(47.16)
@@ -207,18 +214,18 @@ def validate_paper_canonical():
             hi = mid
     s3_paper = 0.5 * (lo + hi)
     c_proof, phi_proof = mc_closed_form_ref(50.0, hb.mb, hb.s, hb.a, s3_paper)
-    info(f"论文隐含 σ3max≈{s3_paper:.4f} MPa → 反算 φ'={phi_proof:.2f}°, c'={c_proof/1000:.3f} MPa")
-    check("φ' 反算复现论文", phi_proof, 47.16, tol=2e-1)
-    check("c' 反算复现论文 (kPa)", c_proof, 580.0, tol=5e-2, rel=True)
+    vr.info(f"论文隐含 σ3max≈{s3_paper:.4f} MPa → 反算 φ'={phi_proof:.2f}°, c'={c_proof/1000:.3f} MPa")
+    vr.check("φ' 反算复现论文", phi_proof, 47.16, tol=2e-1)
+    vr.check("c' 反算复现论文 (kPa)", c_proof, 580.0, tol=5e-2, rel=True)
 
 
 # ---------------------------------------------------------------------------
 # 验证 4: 模量方法对照 xlsx（hoek2002=列L, hd2006=列T）
 # ---------------------------------------------------------------------------
-def validate_modulus_vs_xlsx(cases):
+def validate_modulus_vs_xlsx(cases, vr: ValidationResult):
     print("\n=== 验证4: 变形模量方法 对照 xlsx (per-case Ei/MR) ===")
     if not cases:
-        info("未找到 xlsx，跳过")
+        vr.info("未找到 xlsx，跳过")
         return
     for c in cases:
         tag = f"[{c['sheet']}!R{c['row']}] "
@@ -227,38 +234,41 @@ def validate_modulus_vs_xlsx(cases):
                               Ei_input=Ei, MR=MR).compute("hoek2002")
         if c["Em_hoek2002"] is not None:
             if c["sigma_ci"] <= 100.0:
-                check("Em Hoek2002", mod.Em_hoek2002, c["Em_hoek2002"], tol=1e-3, tag=tag)
+                vr.check("Em Hoek2002", mod.Em_hoek2002, c["Em_hoek2002"], tol=1e-3, tag=tag)
             else:
                 # σci>100 时 xlsx 采用不同截断约定，仅作 INFO 对照
-                info(f"{tag}Em Hoek2002(σci>100) 引擎={mod.Em_hoek2002:.1f} "
+                vr.info(f"{tag}Em Hoek2002(σci>100) 引擎={mod.Em_hoek2002:.1f} "
                      f"xlsx={c['Em_hoek2002']:.1f} (约定差~5%)")
         mod2 = RockMassModulus(c["sigma_ci"], c["gsi"], c["D"],
                                Ei_input=Ei, MR=MR).compute("hd2006")
         if c["Em_hd2006"] is not None:
-            check("Em H&D2006", mod2.Em_hd2006, c["Em_hd2006"], tol=1e-2, tag=tag)
+            vr.check("Em H&D2006", mod2.Em_hd2006, c["Em_hd2006"], tol=1e-2, tag=tag)
 
 
 def main():
     print("=" * 72)
     print("Hoek-Brown 参数计算 + 软件对标验证套件")
     print("=" * 72)
-    xlsx_path = os.path.join(HERE, "..", "uploads", "HB折减.xlsx")
-    if not os.path.exists(xlsx_path):
-        xlsx_path = "/sandbox/workspace/uploads/HB折减.xlsx"
-    cases = load_xlsx_cases(xlsx_path) if os.path.exists(xlsx_path) else []
-    print(f"已加载 xlsx 基准案例: {len(cases)} 个")
+    # 查找 xlsx 基准文件：优先项目目录下的 uploads/，其次当前目录
+    xlsx_candidates = [
+        os.path.join(HERE, "..", "uploads", "HB折减.xlsx"),
+        os.path.join(HERE, "HB折减.xlsx"),
+    ]
+    xlsx_path = next((p for p in xlsx_candidates if os.path.exists(p)), None)
+    cases = load_xlsx_cases(xlsx_path) if xlsx_path else []
+    print(f"已加载 xlsx 基准案例: {len(cases)} 个" if cases else "未找到 HB折减.xlsx，仅运行论文验证")
 
-    validate_core_vs_xlsx(cases)
-    validate_mc_formula_vs_xlsx(cases)
-    validate_paper_canonical()
-    validate_modulus_vs_xlsx(cases)
+    vr = ValidationResult()
+    validate_core_vs_xlsx(cases, vr)
+    validate_mc_formula_vs_xlsx(cases, vr)
+    validate_paper_canonical(vr)
+    validate_modulus_vs_xlsx(cases, vr)
 
     print("\n" + "=" * 72)
-    print(f"结果: PASS={_PASSED}  FAIL={_FAILED}  INFO={_INFO}")
+    print(f"结果: {vr.summary()}")
     print("=" * 72)
-    return _FAILED == 0
+    return vr.all_passed
 
 
 if __name__ == "__main__":
-    ok = main()
-    sys.exit(0 if ok else 1)
+    sys.exit(0 if main() else 1)

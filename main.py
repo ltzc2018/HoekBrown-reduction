@@ -3,31 +3,33 @@ Hoek-Brown 岩体强度折减分析系统 — 命令行入口
 ============================================
 
 用法:
-    python main.py                 # 启动 GUI 界面
-    python main.py --demo         # 运行示例计算（非 GUI）
-    python main.py --validate     # 运行验证套件（对照 Hoek 2002 / RocLab）
-    python main.py --example      # 输出 Hoek 2002 经典与项目示例完整结果
-    python main.py --batch csv.txt # 从 CSV 批量计算（列: sigma_ci,gsi,mi,D,gamma,height）
-    python main.py --single "89.5,64,24,0.9,0.027,196"  # 单组参数快速估算
+    python main.py                         启动 GUI 界面
+    python main.py --demo                  运行示例计算（非 GUI）
+    python main.py --validate              运行验证套件（对照 Hoek 2002 / RocLab）
+    python main.py --example               输出 Hoek 2002 经典与项目示例完整结果
+    python main.py --batch <csv>           从 CSV 批量计算
+    python main.py --single <params>       单组参数快速估算
 
 依赖: numpy, matplotlib (GUI 还需 PyQt5)
 """
 import sys
 import os
+import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# ---- 单组参数快速估算 ----
+_DEFAULT_PARAMS = (89.5, 64.0, 24.0, 0.9, 0.027, 196.0)
+
+
 def _parse_single(arg: str):
+    """解析 'sci,gsi,mi,D,gamma,height' 格式，缺失用默认值补齐"""
     parts = [float(x) for x in arg.split(",")]
-    while len(parts) < 6:
-        parts.append([89.5, 64.0, 24.0, 0.9, 0.027, 196.0][len(parts)])
-    return parts[:6]
+    return parts[:6] + list(_DEFAULT_PARAMS[len(parts):6])
 
 
 def run_single(arg: str):
-    sci, gsi, mi, D, gamma, H = _parse_single(arg)
     from hb_reduction import quick_estimate
+    sci, gsi, mi, D, gamma, H = _parse_single(arg)
     r = quick_estimate(sci, gsi, mi, D, gamma, H)
     print("=" * 60)
     print(f"  单组快速估算: σci={sci}, GSI={gsi}, mi={mi}, D={D}")
@@ -82,7 +84,7 @@ def run_example():
 def run_batch(csv_path: str):
     """从 CSV 批量计算。首行可含表头；列顺序: sigma_ci,gsi,mi,D,gamma,height"""
     import csv
-    from hb_reduction import HBParameters, RockMassModulus, run_analysis
+    from hb_reduction import HBParameters, RockMassModulus
     print(f"批量计算: {csv_path}")
     with open(csv_path, newline="") as f:
         reader = csv.reader(f)
@@ -100,6 +102,7 @@ def run_batch(csv_path: str):
         H = vals[5] if len(vals) > 5 else 100.0
         hb = HBParameters(sci, gsi, mi, D, gamma, H).compute()
         mod = RockMassModulus(sci, gsi, D).compute("hoek2002")
+        from hb_reduction import run_analysis
         res = run_analysis(hb, mod, application="tunnel")
         print(f"{sci:8.1f} {gsi:5.0f} {mi:5.1f} {D:5.2f} {res.mc.c_eq:10.1f} {res.mc.phi_eq:8.1f} {mod.Em_hoek2002:10.0f}")
 
@@ -114,11 +117,10 @@ def _is_number(s: str) -> bool:
 
 def run_gui():
     try:
-        from hb_gui import HBReductionApp
-        from PyQt5.QtWidgets import QApplication
-        from hb_gui import apply_styles
+        from hb_gui import HBReductionApp, apply_styles
+        from PyQt6.QtWidgets import QApplication
     except ImportError as e:
-        print(f"[错误] 无法加载 GUI（缺少 PyQt5）: {e}")
+        print(f"[错误] 无法加载 GUI（缺少 PyQt6）: {e}")
         print("        可改用: python main.py --demo / --validate / --example / --batch")
         sys.exit(1)
     app = QApplication(sys.argv)
@@ -127,33 +129,45 @@ def run_gui():
     window = HBReductionApp()
     window.show()
     print("  [提示] GUI 窗口已打开。命令行模式: python main.py --demo")
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 def main():
-    args = sys.argv[1:]
-    if "--validate" in args:
+    parser = argparse.ArgumentParser(
+        description="Hoek-Brown 岩体强度折减分析系统",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python main.py                          # 启动 GUI
+  python main.py --demo                   # 示例计算
+  python main.py --validate               # 运行验证套件
+  python main.py --example                # 经典与项目示例
+  python main.py --single "89.5,64,24,0.9,0.027,196"
+  python main.py --batch sample_batch.csv
+        """,
+    )
+    parser.add_argument("--demo", action="store_true", help="运行示例计算（非 GUI）")
+    parser.add_argument("--validate", action="store_true", help="运行验证套件")
+    parser.add_argument("--example", action="store_true", help="输出 Hoek 2002 经典与项目示例")
+    parser.add_argument("--single", metavar="PARAMS", help="单组参数快速估算 (sci,gsi,mi,D,gamma,height)")
+    parser.add_argument("--batch", metavar="CSV", help="从 CSV 批量计算")
+
+    args = parser.parse_args()
+
+    if args.validate:
         from hb_validate import main as validate_main
-        sys.exit(validate_main())
-    if "--demo" in args:
+        sys.exit(0 if validate_main() else 1)
+    if args.demo:
         run_demo()
         return
-    if "--example" in args:
+    if args.example:
         run_example()
         return
-    if "--single" in args:
-        i = args.index("--single")
-        if i + 1 < len(args):
-            run_single(args[i + 1])
-        else:
-            print("用法: --single \"89.5,64,24,0.9,0.027,196\"")
+    if args.single:
+        run_single(args.single)
         return
-    if "--batch" in args:
-        i = args.index("--batch")
-        if i + 1 < len(args):
-            run_batch(args[i + 1])
-        else:
-            print("用法: --batch data.csv")
+    if args.batch:
+        run_batch(args.batch)
         return
     # 默认启动 GUI
     run_gui()

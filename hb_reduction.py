@@ -33,23 +33,6 @@ from typing import List, Tuple, Optional, Sequence
 # 数值保护下限
 _EPS = 1e-12
 
-# 常见完整岩石材料常数 mi（Hoek & Brown, 1980/1997，供参考，建议以试验值为准）
-MI_REFERENCE = {
-    "大理岩 Marble": 9.0,
-    "灰岩 Limestone": 10.0,
-    "千枚岩 Phyllite": 10.0,
-    "板岩 Slate": 9.0,
-    "砂岩 Sandstone": 17.0,
-    "页岩 Shale": 8.0,
-    "石英岩 Quartzite": 24.0,
-    "玄武岩 Basalt": 25.0,
-    "安山岩 Andesite": 19.0,
-    "花岗岩 Granite": 33.0,
-    "流纹岩 Rhyolite": 22.0,
-    "片麻岩 Gneiss": 28.0,
-}
-
-
 # ============================================================================
 # 1. Hoek-Brown 基本强度参数
 # ============================================================================
@@ -85,23 +68,19 @@ class HBParameters:
         self.sigma_t = -self.s * sigma_ci / max(self.mb, _EPS)
         return self
 
-    # 向后兼容别名
-    @property
-    def sigma_c_prime(self) -> float:
-        return self.sigma_cm
+    def _compute_term(self, sigma3: float) -> float:
+        """计算包络线公式中的公共项: mb·σ3/σci + s"""
+        term = self.mb * (sigma3 / max(self.sigma_ci, _EPS)) + self.s
+        return term if term > _EPS else _EPS
 
     def envelope(self, sigma3: float) -> float:
         """给定小主应力 σ3 (MPa)，返回破坏时大主应力 σ1 (MPa)（有效应力形式）"""
-        term = self.mb * (sigma3 / max(self.sigma_ci, _EPS)) + self.s
-        if term <= 0:
-            term = _EPS
+        term = self._compute_term(sigma3)
         return sigma3 + self.sigma_ci * math.pow(term, self.a)
 
     def dsigma1_dsigma3(self, sigma3: float) -> float:
         """Hoek-Brown 包络线斜率 dσ1/dσ3（Balmer, eq.10），即剪胀相关量"""
-        term = self.mb * (sigma3 / max(self.sigma_ci, _EPS)) + self.s
-        if term <= 0:
-            term = _EPS
+        term = self._compute_term(sigma3)
         return 1.0 + self.a * self.mb * math.pow(term, self.a - 1.0)
 
 
@@ -124,13 +103,6 @@ class RockMassModulus:
     Em_mr: float = field(default=0.0, init=False)              # 方法2 模量比法
     Em_serafim: float = field(default=0.0, init=False)         # 方法3 Serafim&Pereira(1983)
     Em_selected: float = field(default=0.0, init=False)        # 当前选用方法结果
-
-    _METHOD_LABELS = {
-        "hoek2002": "Hoek (2002) GSI+σci [推荐]",
-        "hd2006": "Hoek & Diederichs (2006) Ei比",
-        "mr": "模量比法 (Ei/Em)",
-        "serafim": "Serafim & Pereira (1983) GSI",
-    }
 
     def compute(self, method: str = "hoek2002") -> "RockMassModulus":
         D, GSI, sigma_ci = self.D, self.gsi, self.sigma_ci
@@ -166,11 +138,6 @@ class RockMassModulus:
             "mr": self.Em_mr,
             "serafim": self.Em_serafim,
         }.get(method, self.Em_hoek2002)
-
-    def recommend(self) -> float:
-        """推荐采用 Hoek(2002) 方法"""
-        return self.Em_hoek2002
-
 
 # ============================================================================
 # 3. 等效 Mohr-Coulomb 参数 (c', φ')
