@@ -94,6 +94,7 @@ def apply_styles(app):
             color: {TEXT_DARK};
             selection-background-color: {ACCENT};
             selection-color: white;
+            max-width: 100px;
         }}
         QDoubleSpinBox:hover, QSpinBox:hover, QLineEdit:hover {{
             border: 1px solid {ACCENT};
@@ -112,6 +113,7 @@ def apply_styles(app):
             padding: 6px 10px;
             font-size: 13px;
             color: {TEXT_DARK};
+            max-width: 100px;
         }}
         QComboBox:hover {{ border: 1px solid {ACCENT}; }}
         QComboBox:focus {{ border: 2px solid {ACCENT}; }}
@@ -262,24 +264,14 @@ class MetricCard(QFrame):
 def make_field(layout, label_text, widget, unit_text=None, tip=None, row=None):
     """在网格布局中放置一个带标签的字段，返回 widget。"""
     lbl = QLabel(label_text)
-    lbl.setWordWrap(True)
+    lbl.setAlignment(Qt.AlignmentFlag.AlignVCenter)
     if tip:
         lbl.setToolTip(tip)
         widget.setToolTip(tip)
     if row is None:
         row = layout.rowCount()
     layout.addWidget(lbl, row, 0)
-    if unit_text:
-        h = QHBoxLayout()
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(6)
-        h.addWidget(widget, 1)
-        u = QLabel(unit_text)
-        u.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
-        h.addWidget(u)
-        layout.addLayout(h, row, 1)
-    else:
-        layout.addWidget(widget, row, 1)
+    layout.addWidget(widget, row, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     return widget
 
 
@@ -369,15 +361,6 @@ class HBReductionApp(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(8)
 
-        # 标题栏
-        title_layout = QHBoxLayout()
-        title_label = QLabel("  Hoek-Brown 岩体强度折减分析系统  ")
-        title_label.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
-        title_label.setStyleSheet(f"color: {DARK_BLUE}; padding: 8px; background-color: {CARD_BG}; border-radius: 8px;")
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        main_layout.addLayout(title_layout)
-
         # 分割器
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -407,28 +390,19 @@ class HBReductionApp(QMainWindow):
 
 
     def _create_input_panel(self) -> QWidget:
-        """创建左侧输入面板（商业级：分组清晰、白底输入框、单位标注）"""
+        """创建左侧输入面板"""
         panel = QWidget()
         root = QVBoxLayout(panel)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(12)
-
-        title = QLabel("工程参数输入")
-        title.setStyleSheet(
-            f"font-size: 16px; font-weight: 700; color: {DARK_BLUE}; "
-            f"font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;"
-        )
-        root.addWidget(title)
-        sub = QLabel("Hoek-Brown 岩体强度折减分析")
-        sub.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED};")
-        root.addWidget(sub)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(10)
 
         # 基本强度参数
         basic_group = QGroupBox("基本强度参数")
         basic_layout = QGridLayout()
         basic_layout.setColumnStretch(1, 1)
-        basic_layout.setHorizontalSpacing(10)
-        basic_layout.setVerticalSpacing(8)
+        basic_layout.setHorizontalSpacing(8)
+        basic_layout.setVerticalSpacing(6)
+        basic_layout.setColumnMinimumWidth(0, 145)
 
         self.spin_sigma_ci = QDoubleSpinBox()
         self.spin_sigma_ci.setRange(1, 500)
@@ -437,11 +411,44 @@ class HBReductionApp(QMainWindow):
         self.spin_sigma_ci.setSuffix(" MPa")
         self.spin_gsi = QSpinBox()
         self.spin_gsi.setRange(0, 100)
+        self.combo_gsi = QComboBox()
+        self.combo_gsi.addItem("手动输入", -1)
+        self.combo_gsi.addItem("完好（80~100）— 致密、极少结构面", 90)
+        self.combo_gsi.addItem("很好（70~80）— 块状、结构面间距大", 75)
+        self.combo_gsi.addItem("良好（60~70）— 块状/楔形、结构面中等", 65)
+        self.combo_gsi.addItem("一般（40~60）— 破碎/块状、结构面发育", 50)
+        self.combo_gsi.addItem("较差（20~40）— 破碎、结构面很发育", 30)
+        self.combo_gsi.addItem("极差（0~20）— 极破碎、糜棱化", 10)
+        self.combo_gsi.currentIndexChanged.connect(self._on_gsi_combo_changed)
+        self.spin_gsi.valueChanged.connect(self._on_gsi_spin_changed)
         self.spin_gsi.setValue(64)
+        gsi_container = QWidget()
+        gsi_layout = QHBoxLayout(gsi_container)
+        gsi_layout.setContentsMargins(0, 0, 0, 0)
+        gsi_layout.setSpacing(4)
+        gsi_layout.addWidget(self.combo_gsi)
+        gsi_layout.addWidget(self.spin_gsi)
+
         self.spin_mi = QDoubleSpinBox()
-        self.spin_mi.setRange(1, 25)
-        self.spin_mi.setValue(24)
+        self.spin_mi.setRange(1, 30)
         self.spin_mi.setDecimals(2)
+        self.combo_mi = QComboBox()
+        self.combo_mi.addItem("手动输入", 0)
+        self.combo_mi.addItem("碳酸盐岩（白云岩、大理岩）7 ±3", 7)
+        self.combo_mi.addItem("粘土质岩石（泥岩、页岩、板岩）10 ±3", 10)
+        self.combo_mi.addItem("砂质岩石（砂岩、石英岩）15 ±3", 15)
+        self.combo_mi.addItem("细粒火成岩（安山岩、玄武岩、流纹岩）17 ±5", 17)
+        self.combo_mi.addItem("粗粒火成岩/变质岩（花岗岩、辉长岩、片麻岩）25 ±5", 25)
+        self.combo_mi.currentIndexChanged.connect(self._on_mi_combo_changed)
+        self.spin_mi.valueChanged.connect(self._on_mi_spin_changed)
+        self.spin_mi.setValue(24)
+        mi_container = QWidget()
+        mi_layout = QHBoxLayout(mi_container)
+        mi_layout.setContentsMargins(0, 0, 0, 0)
+        mi_layout.setSpacing(4)
+        mi_layout.addWidget(self.combo_mi)
+        mi_layout.addWidget(self.spin_mi)
+
         self.spin_D = QDoubleSpinBox()
         self.spin_D.setRange(0, 1)
         self.spin_D.setValue(0.9)
@@ -458,8 +465,8 @@ class HBReductionApp(QMainWindow):
         self.spin_height.setSuffix(" m")
 
         make_field(basic_layout, "单轴抗压强度 \u03c3ci (MPa):", self.spin_sigma_ci)
-        make_field(basic_layout, "地质强度指标 GSI:", self.spin_gsi)
-        make_field(basic_layout, "岩体类型参数 mi:", self.spin_mi)
+        make_field(basic_layout, "地质强度指标 GSI:", gsi_container)
+        make_field(basic_layout, "岩体类型参数 mi:", mi_container)
         make_field(basic_layout, "扰动系数 D:", self.spin_D)
         make_field(basic_layout, "岩体容重 \u03b3 (MN/m\u00b3):", self.spin_gamma)
         make_field(basic_layout, "开挖高度 H (m):", self.spin_height)
@@ -469,6 +476,7 @@ class HBReductionApp(QMainWindow):
         modulus_group = QGroupBox("弹性模量计算选项")
         modulus_layout = QGridLayout()
         modulus_layout.setColumnStretch(1, 1)
+        modulus_layout.setColumnMinimumWidth(0, 145)
         self.combo_modulus_method = make_combo(
             ["Hoek(2002) [推荐]", "Hoek&Diederichs(2006)", "模量比法", "Serafim&Pereira(1983)"]
         )
@@ -490,6 +498,7 @@ class HBReductionApp(QMainWindow):
         option_group = QGroupBox("分析选项")
         option_layout = QGridLayout()
         option_layout.setColumnStretch(1, 1)
+        option_layout.setColumnMinimumWidth(0, 145)
         self.combo_application = make_combo(["隧道 (Tunnel)", "边坡 (Slope)"], current="隧道 (Tunnel)")
         self.spin_sigma3 = QDoubleSpinBox()
         self.spin_sigma3.setRange(0, 100)
@@ -932,6 +941,49 @@ c′ = σ<sub>ci</sub> · [(1+2a)s + (1−a)m<sub>b</sub> σ<sub>3n</sub>] · (s
                 pass
         self._plot_figures.clear()
 
+
+
+    # ---- 下拉框与数值框联动 ----
+
+    def _on_gsi_combo_changed(self, idx):
+        """GSI 下拉选择 → 填充数值框"""
+        val = self.combo_gsi.currentData()
+        if val is not None and val >= 0:
+            self.spin_gsi.blockSignals(True)
+            self.spin_gsi.setValue(val)
+            self.spin_gsi.blockSignals(False)
+
+    def _on_gsi_spin_changed(self, val):
+        """GSI 数值框改变 → 同步下拉框（容差 ±5，默认值 64 → 良好）"""
+        self.combo_gsi.blockSignals(True)
+        for i in range(self.combo_gsi.count()):
+            data = self.combo_gsi.itemData(i)
+            if data is not None and data >= 0 and abs(data - val) <= 5:
+                self.combo_gsi.setCurrentIndex(i)
+                self.combo_gsi.blockSignals(False)
+                return
+        self.combo_gsi.setCurrentIndex(0)
+        self.combo_gsi.blockSignals(False)
+
+    def _on_mi_combo_changed(self, idx):
+        """mi 下拉选择 → 填充数值框"""
+        val = self.combo_mi.currentData()
+        if val is not None and val > 0:
+            self.spin_mi.blockSignals(True)
+            self.spin_mi.setValue(val)
+            self.spin_mi.blockSignals(False)
+
+    def _on_mi_spin_changed(self, val):
+        """mi 数值框改变 → 同步下拉框（容差 ±2，默认值 24 → 粗粒火成岩）"""
+        self.combo_mi.blockSignals(True)
+        for i in range(self.combo_mi.count()):
+            data = self.combo_mi.itemData(i)
+            if data is not None and data > 0 and abs(data - val) <= 2:
+                self.combo_mi.setCurrentIndex(i)
+                self.combo_mi.blockSignals(False)
+                return
+        self.combo_mi.setCurrentIndex(0)
+        self.combo_mi.blockSignals(False)
 
 
 # ============================================================================
