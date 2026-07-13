@@ -8,13 +8,13 @@ Hoek-Brown 岩体强度折减分析系统 - GUI 界面
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QGroupBox,
+    QLabel, QPushButton, QGroupBox, QStyle,
     QTabWidget, QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox,
     QComboBox, QPlainTextEdit, QTextBrowser, QSplitter, QFrame, QGridLayout,
-    QScrollArea, QSizePolicy
+    QScrollArea, QSizePolicy, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, QSize, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QColor
 import matplotlib
 matplotlib.use("QtAgg")
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -40,17 +40,26 @@ APP_BG        = "#f1f5f9"
 PANEL_BG      = "#f8fafc"
 CARD_BG       = "#ffffff"
 BORDER        = "#e2e8f0"
-BORDER_STRONG = "#94a3b8"
+BORDER_STRONG = "#cbd5e1"
 DARK_BLUE     = "#0f172a"
-ACCENT        = "#1d4ed8"
-ACCENT_HOVER  = "#1e40af"
+ACCENT        = "#2563eb"
+ACCENT_HOVER  = "#1d4ed8"
 TEXT_DARK     = "#1e293b"
 TEXT_MUTED    = "#64748b"
-SUCCESS_BTN   = "#15803d"
-SUCCESS_HOVER = "#166534"
-WARN          = "#c2410c"
+SUCCESS_BTN   = "#059669"
+SUCCESS_HOVER = "#047857"
+WARN          = "#d97706"
 INPUT_BG      = "#ffffff"
 PURPLE        = "#7c3aed"
+
+# 指标卡片配色（和谐调色板，饱和度受控，避免杂乱的多强调色）
+CARD_COLORS = {
+    "scm": "#2563eb",   # 蓝
+    "c":   "#059669",   # 翠绿
+    "phi": "#d97706",   # 琥珀
+    "em":  "#4f46e5",   # 靛蓝
+    "s3":  "#7c3aed",   # 紫罗兰
+}
 
 
 def apply_styles(app):
@@ -88,13 +97,14 @@ def apply_styles(app):
         QDoubleSpinBox, QSpinBox, QLineEdit {{
             background-color: {INPUT_BG};
             border: 1px solid {BORDER_STRONG};
-            border-radius: 6px;
-            padding: 6px 8px;
+            border-radius: 8px;
+            padding: 7px 10px;
             font-size: 13px;
             color: {TEXT_DARK};
             selection-background-color: {ACCENT};
             selection-color: white;
-            max-width: 100px;
+            min-width: 90px;
+            max-width: 120px;
         }}
         QDoubleSpinBox:hover, QSpinBox:hover, QLineEdit:hover {{
             border: 1px solid {ACCENT};
@@ -103,26 +113,39 @@ def apply_styles(app):
             border: 2px solid {ACCENT};
             background-color: #f0f6ff;
         }}
-        QDoubleSpinBox::up-button, QSpinBox::up-button {{ width: 16px; }}
-        QDoubleSpinBox::down-button, QSpinBox::down-button {{ width: 16px; }}
-        /* ---------- 下拉框 ---------- */
+        QDoubleSpinBox::up-button, QSpinBox::up-button {{ width: 18px; }}
+        QDoubleSpinBox::down-button, QSpinBox::down-button {{ width: 18px; }}
+        /* ---------- 下拉框（去掉固定窄宽，避免超长中文选项被截断） ---------- */
         QComboBox {{
             background-color: {INPUT_BG};
             border: 1px solid {BORDER_STRONG};
-            border-radius: 6px;
-            padding: 6px 10px;
+            border-radius: 8px;
+            padding: 7px 30px 7px 10px;
             font-size: 13px;
             color: {TEXT_DARK};
-            max-width: 100px;
+            min-width: 150px;
         }}
         QComboBox:hover {{ border: 1px solid {ACCENT}; }}
         QComboBox:focus {{ border: 2px solid {ACCENT}; }}
-        QComboBox::drop-down {{ border: none; width: 22px; }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            border: none;
+            width: 26px;
+        }}
         QComboBox QAbstractItemView {{
             background-color: {INPUT_BG};
             border: 1px solid {BORDER};
+            border-radius: 8px;
             selection-background-color: {ACCENT};
             selection-color: white;
+            min-width: 380px;
+            padding: 4px;
+            outline: 0;
+        }}
+        QComboBox QAbstractItemView::item {{
+            padding: 6px 10px;
+            border-radius: 5px;
         }}
         /* ---------- 按钮 ---------- */
         QPushButton {{
@@ -154,28 +177,31 @@ def apply_styles(app):
         /* ---------- 标签页 ---------- */
         QTabWidget::pane {{
             border: 1px solid {BORDER};
-            border-radius: 10px;
+            border-radius: 12px;
             background-color: {CARD_BG};
-            top: 6px;
+            top: 4px;
         }}
         QTabBar::tab {{
-            background-color: #e3e8f0;
+            background-color: transparent;
             color: {TEXT_MUTED};
-            padding: 9px 18px;
-            border-top-left-radius: 8px;
-            border-top-right-radius: 8px;
+            padding: 10px 20px;
+            border-top-left-radius: 9px;
+            border-top-right-radius: 9px;
             font-size: 13px;
             font-weight: 600;
             font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", sans-serif;
-            margin-right: 3px;
+            margin-right: 2px;
+            border: 1px solid transparent;
         }}
         QTabBar::tab:selected {{
             background-color: {CARD_BG};
             color: {ACCENT};
             border: 1px solid {BORDER};
-            border-bottom: 2px solid {CARD_BG};
+            border-top: 3px solid {ACCENT};
+            border-bottom: 1px solid {CARD_BG};
+            padding-top: 8px;
         }}
-        QTabBar::tab:hover {{ background-color: #d7deea; }}
+        QTabBar::tab:hover:!selected {{ background-color: #eef2f8; }}
         /* ---------- 文本结果 ---------- */
         QTextEdit, QPlainTextEdit {{
             background-color: {INPUT_BG};
@@ -210,21 +236,21 @@ def apply_styles(app):
 # ============================================================================
 
 class MetricCard(QFrame):
-    """顶部关键指标卡片（商业级大数字展示）"""
+    """顶部关键指标卡片（商业级大数字展示，带轻微投影与悬停反馈）"""
 
     def __init__(self, title, value="—", unit="", accent=ACCENT, parent=None):
         super().__init__(parent)
         self.setObjectName("metric_card")
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setMinimumHeight(78)
+        self.setMinimumHeight(84)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._accent = accent
         self._title = title
         self._unit = unit
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(14, 10, 14, 10)
-        lay.setSpacing(2)
+        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setSpacing(3)
 
         self.title_lbl = QLabel(title)
         self.title_lbl.setStyleSheet(
@@ -232,7 +258,7 @@ class MetricCard(QFrame):
         )
         self.value_lbl = QLabel(value)
         self.value_lbl.setStyleSheet(
-            f"color: {accent}; font-size: 22px; font-weight: 700; "
+            f"color: {accent}; font-size: 24px; font-weight: 700; "
             f"font-family: Consolas, 'SF Mono', Menlo, monospace;"
         )
         self.value_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -246,13 +272,24 @@ class MetricCard(QFrame):
         lay.addWidget(self.unit_lbl)
 
         self.setStyleSheet(f"""
-            MetricCard, QFrame#metric_card {{
+            QFrame#metric_card {{
                 background-color: {CARD_BG};
                 border: 1px solid {BORDER};
                 border-left: 4px solid {accent};
-                border-radius: 10px;
+                border-radius: 12px;
+            }}
+            QFrame#metric_card:hover {{
+                border-color: {accent};
+                background-color: #fbfdff;
             }}
         """)
+
+        # 轻微投影，营造层次感（QSS 不支持 box-shadow，用 GraphicsEffect 补足）
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(14)
+        shadow.setOffset(0, 3)
+        shadow.setColor(QColor(15, 23, 42, 30))
+        self.setGraphicsEffect(shadow)
 
     def set_value(self, value, unit=None):
         if unit is not None:
@@ -270,6 +307,7 @@ def make_field(layout, label_text, widget, unit_text=None, tip=None, row=None):
         widget.setToolTip(tip)
     if row is None:
         row = layout.rowCount()
+    widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     layout.addWidget(lbl, row, 0)
     layout.addWidget(widget, row, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     return widget
@@ -361,6 +399,9 @@ class HBReductionApp(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(8)
 
+        # 顶部品牌页眉
+        main_layout.addWidget(self._create_header())
+
         # 分割器
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -369,25 +410,62 @@ class HBReductionApp(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setWidget(left_panel)
-        left_scroll.setMaximumWidth(420)
+        left_scroll.setMaximumWidth(320)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
         splitter.addWidget(left_scroll)
 
         # --- 右侧:结果面板 ---
         right_panel = self._create_result_panel()
+        right_panel.setMinimumWidth(620)
         splitter.addWidget(right_panel)
 
 
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 5)
-        splitter.setSizes([360, self.width() - 380])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, self.width() - 330])
         main_layout.addWidget(splitter, 1)
 
         sb = self.statusBar()
         sb.setStyleSheet(f"background-color: {DARK_BLUE}; color: #cdd9ec; font-size: 12px; padding: 4px 10px;")
         sb.showMessage("就绪 \u2014 输入参数后点击『执行分析』")
 
+
+    def _create_header(self) -> QWidget:
+        """顶部品牌页眉（深 slate 渐变，强对比，商业级观感）"""
+        header = QWidget()
+        header.setFixedHeight(60)
+        header.setStyleSheet(
+            "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+            "stop:0 #1e293b, stop:1 #0f172a);"
+        )
+        h_lay = QHBoxLayout(header)
+        h_lay.setContentsMargins(18, 0, 18, 0)
+        h_lay.setSpacing(12)
+
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
+        title = QLabel("Hoek-Brown 岩体强度折减分析系统")
+        title.setStyleSheet(
+            "color: #f8fafc; font-size: 15px; font-weight: 700; "
+            "font-family: 'Microsoft YaHei','PingFang SC',sans-serif;"
+        )
+        subtitle = QLabel("广义 Hoek-Brown 准则 · 岩体强度参数与等效 Mohr-Coulomb 转换")
+        subtitle.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        h_lay.addLayout(title_box)
+        h_lay.addStretch()
+
+        pill = QLabel("v1.1 · 商业级")
+        pill.setStyleSheet(
+            "color: #cbd5e1; font-size: 11px; font-weight: 600; "
+            "background-color: rgba(255,255,255,0.08); "
+            "border: 1px solid rgba(255,255,255,0.18); "
+            "border-radius: 999px; padding: 4px 12px;"
+        )
+        h_lay.addWidget(pill)
+        return header
 
     def _create_input_panel(self) -> QWidget:
         """创建左侧输入面板"""
@@ -402,7 +480,7 @@ class HBReductionApp(QMainWindow):
         basic_layout.setColumnStretch(1, 1)
         basic_layout.setHorizontalSpacing(8)
         basic_layout.setVerticalSpacing(6)
-        basic_layout.setColumnMinimumWidth(0, 145)
+        basic_layout.setColumnMinimumWidth(0, 125)
 
         self.spin_sigma_ci = QDoubleSpinBox()
         self.spin_sigma_ci.setRange(1, 500)
@@ -412,13 +490,19 @@ class HBReductionApp(QMainWindow):
         self.spin_gsi = QSpinBox()
         self.spin_gsi.setRange(0, 100)
         self.combo_gsi = QComboBox()
-        self.combo_gsi.addItem("手动输入", -1)
-        self.combo_gsi.addItem("完好（80~100）— 致密、极少结构面", 90)
-        self.combo_gsi.addItem("很好（70~80）— 块状、结构面间距大", 75)
-        self.combo_gsi.addItem("良好（60~70）— 块状/楔形、结构面中等", 65)
-        self.combo_gsi.addItem("一般（40~60）— 破碎/块状、结构面发育", 50)
-        self.combo_gsi.addItem("较差（20~40）— 破碎、结构面很发育", 30)
-        self.combo_gsi.addItem("极差（0~20）— 极破碎、糜棱化", 10)
+        gsi_items = [
+            ("手动输入", -1, ""),
+            ("极好 90", 90, "完好（80~100）— 致密、极少结构面"),
+            ("很好 75", 75, "很好（70~80）— 块状、结构面间距大"),
+            ("良好 65", 65, "良好（60~70）— 块状/楔形、结构面中等"),
+            ("一般 50", 50, "一般（40~60）— 破碎/块状、结构面发育"),
+            ("较差 30", 30, "较差（20~40）— 破碎、结构面很发育"),
+            ("极差 10", 10, "极差（0~20）— 极破碎、糜棱化"),
+        ]
+        for txt, val, tip in gsi_items:
+            self.combo_gsi.addItem(txt, val)
+            if tip:
+                self.combo_gsi.setItemData(self.combo_gsi.count() - 1, tip, Qt.ItemDataRole.ToolTipRole)
         self.combo_gsi.currentIndexChanged.connect(self._on_gsi_combo_changed)
         self.spin_gsi.valueChanged.connect(self._on_gsi_spin_changed)
         self.spin_gsi.setValue(64)
@@ -433,12 +517,18 @@ class HBReductionApp(QMainWindow):
         self.spin_mi.setRange(1, 30)
         self.spin_mi.setDecimals(2)
         self.combo_mi = QComboBox()
-        self.combo_mi.addItem("手动输入", 0)
-        self.combo_mi.addItem("碳酸盐岩（白云岩、大理岩）7 ±3", 7)
-        self.combo_mi.addItem("粘土质岩石（泥岩、页岩、板岩）10 ±3", 10)
-        self.combo_mi.addItem("砂质岩石（砂岩、石英岩）15 ±3", 15)
-        self.combo_mi.addItem("细粒火成岩（安山岩、玄武岩、流纹岩）17 ±5", 17)
-        self.combo_mi.addItem("粗粒火成岩/变质岩（花岗岩、辉长岩、片麻岩）25 ±5", 25)
+        mi_items = [
+            ("手动输入", 0, ""),
+            ("碳酸盐岩 7", 7, "碳酸盐岩（白云岩、大理岩）7 ±3"),
+            ("粘土质岩 10", 10, "粘土质岩石（泥岩、页岩、板岩）10 ±3"),
+            ("砂质岩 15", 15, "砂质岩石（砂岩、石英岩）15 ±3"),
+            ("细粒火成 17", 17, "细粒火成岩（安山岩、玄武岩、流纹岩）17 ±5"),
+            ("粗粒/变质 25", 25, "粗粒火成岩/变质岩（花岗岩、辉长岩、片麻岩）25 ±5"),
+        ]
+        for txt, val, tip in mi_items:
+            self.combo_mi.addItem(txt, val)
+            if tip:
+                self.combo_mi.setItemData(self.combo_mi.count() - 1, tip, Qt.ItemDataRole.ToolTipRole)
         self.combo_mi.currentIndexChanged.connect(self._on_mi_combo_changed)
         self.spin_mi.valueChanged.connect(self._on_mi_spin_changed)
         self.spin_mi.setValue(24)
@@ -476,7 +566,7 @@ class HBReductionApp(QMainWindow):
         modulus_group = QGroupBox("弹性模量计算选项")
         modulus_layout = QGridLayout()
         modulus_layout.setColumnStretch(1, 1)
-        modulus_layout.setColumnMinimumWidth(0, 145)
+        modulus_layout.setColumnMinimumWidth(0, 125)
         self.combo_modulus_method = make_combo(
             ["Hoek(2002) [推荐]", "Hoek&Diederichs(2006)", "模量比法", "Serafim&Pereira(1983)"]
         )
@@ -498,7 +588,7 @@ class HBReductionApp(QMainWindow):
         option_group = QGroupBox("分析选项")
         option_layout = QGridLayout()
         option_layout.setColumnStretch(1, 1)
-        option_layout.setColumnMinimumWidth(0, 145)
+        option_layout.setColumnMinimumWidth(0, 125)
         self.combo_application = make_combo(["隧道 (Tunnel)", "边坡 (Slope)"], current="隧道 (Tunnel)")
         self.spin_sigma3 = QDoubleSpinBox()
         self.spin_sigma3.setRange(0, 100)
@@ -516,14 +606,19 @@ class HBReductionApp(QMainWindow):
         # 按钮
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
-        self.btn_compute = QPushButton("\u27a0 执行分析 \u27a0")
+        st = QStyle.StandardPixmap
+        self.btn_compute = QPushButton("执行分析")
         self.btn_compute.setObjectName("compute_btn")
+        self.btn_compute.setIcon(self.style().standardIcon(st.SP_DialogOkButton))
         self.btn_reset = QPushButton("重置")
         self.btn_reset.setObjectName("secondary_btn")
+        self.btn_reset.setIcon(self.style().standardIcon(st.SP_BrowserReload))
         self.btn_export = QPushButton("导出")
         self.btn_export.setObjectName("secondary_btn")
+        self.btn_export.setIcon(self.style().standardIcon(st.SP_DialogSaveButton))
         self.btn_plot = QPushButton("图表")
         self.btn_plot.setObjectName("secondary_btn")
+        self.btn_plot.setIcon(self.style().standardIcon(st.SP_ComputerIcon))
         btn_layout.addWidget(self.btn_compute)
         btn_layout.addWidget(self.btn_reset)
         btn_layout.addWidget(self.btn_export)
@@ -553,11 +648,11 @@ class HBReductionApp(QMainWindow):
         # 顶部关键指标卡片
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(10)
-        self.metric_scm = MetricCard("岩体抗压强度 \u03c3cm", "\u2014", "MPa", ACCENT)
-        self.metric_c = MetricCard("等效黏聚力 c'", "\u2014", "MPa", SUCCESS_BTN)
-        self.metric_phi = MetricCard("等效内摩擦角 \u03c6'", "\u2014", "\u00b0", "#c77700")
-        self.metric_em = MetricCard("变形模量 Em", "\u2014", "GPa", ACCENT)
-        self.metric_s3 = MetricCard("面积平衡 \u03c3\u2083max", "\u2014", "MPa", "#7b1fa2")
+        self.metric_scm = MetricCard("岩体抗压强度 \u03c3cm", "\u2014", "MPa", CARD_COLORS["scm"])
+        self.metric_c = MetricCard("等效黏聚力 c'", "\u2014", "MPa", CARD_COLORS["c"])
+        self.metric_phi = MetricCard("等效内摩擦角 \u03c6'", "\u2014", "\u00b0", CARD_COLORS["phi"])
+        self.metric_em = MetricCard("变形模量 Em", "\u2014", "GPa", CARD_COLORS["em"])
+        self.metric_s3 = MetricCard("面积平衡 \u03c3\u2083max", "\u2014", "MPa", CARD_COLORS["s3"])
         for c in (self.metric_scm, self.metric_c, self.metric_phi, self.metric_em, self.metric_s3):
             cards_layout.addWidget(c)
         layout.addLayout(cards_layout)
