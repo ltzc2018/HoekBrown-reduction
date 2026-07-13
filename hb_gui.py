@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QPlainTextEdit, QTextBrowser, QSplitter, QFrame, QGridLayout,
     QScrollArea, QSizePolicy, QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QSize, QTimer, QEvent
 from PyQt6.QtGui import QFont, QColor
 import matplotlib
 matplotlib.use("QtAgg")
@@ -104,7 +104,7 @@ def apply_styles(app):
             selection-background-color: {ACCENT};
             selection-color: white;
             min-width: 90px;
-            max-width: 120px;
+            max-width: 100px;
         }}
         QDoubleSpinBox:hover, QSpinBox:hover, QLineEdit:hover {{
             border: 1px solid {ACCENT};
@@ -123,7 +123,7 @@ def apply_styles(app):
             padding: 7px 30px 7px 10px;
             font-size: 13px;
             color: {TEXT_DARK};
-            min-width: 150px;
+            min-width: 130px;
         }}
         QComboBox:hover {{ border: 1px solid {ACCENT}; }}
         QComboBox:focus {{ border: 2px solid {ACCENT}; }}
@@ -301,7 +301,8 @@ class MetricCard(QFrame):
 def make_field(layout, label_text, widget, unit_text=None, tip=None, row=None):
     """在网格布局中放置一个带标签的字段，返回 widget。"""
     lbl = QLabel(label_text)
-    lbl.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+    lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    lbl.setMaximumWidth(150)  # 防止超长标签把标签列撑宽，导致右侧控件被挤出面板
     if tip:
         lbl.setToolTip(tip)
         widget.setToolTip(tip)
@@ -309,7 +310,7 @@ def make_field(layout, label_text, widget, unit_text=None, tip=None, row=None):
         row = layout.rowCount()
     widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     layout.addWidget(lbl, row, 0)
-    layout.addWidget(widget, row, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    layout.addWidget(widget, row, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     return widget
 
 
@@ -410,7 +411,8 @@ class HBReductionApp(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setWidget(left_panel)
-        left_scroll.setMaximumWidth(320)
+        left_scroll.setMaximumWidth(470)
+        left_scroll.setMinimumWidth(450)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         left_scroll.setFrameShape(QFrame.Shape.NoFrame)
         splitter.addWidget(left_scroll)
@@ -423,7 +425,7 @@ class HBReductionApp(QMainWindow):
 
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([300, self.width() - 330])
+        splitter.setSizes([450, self.width() - 470])
         main_layout.addWidget(splitter, 1)
 
         sb = self.statusBar()
@@ -480,7 +482,7 @@ class HBReductionApp(QMainWindow):
         basic_layout.setColumnStretch(1, 1)
         basic_layout.setHorizontalSpacing(8)
         basic_layout.setVerticalSpacing(6)
-        basic_layout.setColumnMinimumWidth(0, 125)
+        basic_layout.setColumnMinimumWidth(0, 150)
 
         self.spin_sigma_ci = QDoubleSpinBox()
         self.spin_sigma_ci.setRange(1, 500)
@@ -506,8 +508,8 @@ class HBReductionApp(QMainWindow):
         self.combo_gsi.currentIndexChanged.connect(self._on_gsi_combo_changed)
         self.spin_gsi.valueChanged.connect(self._on_gsi_spin_changed)
         self.spin_gsi.setValue(64)
-        gsi_container = QWidget()
-        gsi_layout = QHBoxLayout(gsi_container)
+        self.gsi_container = QWidget()
+        gsi_layout = QHBoxLayout(self.gsi_container)
         gsi_layout.setContentsMargins(0, 0, 0, 0)
         gsi_layout.setSpacing(4)
         gsi_layout.addWidget(self.combo_gsi)
@@ -532,8 +534,8 @@ class HBReductionApp(QMainWindow):
         self.combo_mi.currentIndexChanged.connect(self._on_mi_combo_changed)
         self.spin_mi.valueChanged.connect(self._on_mi_spin_changed)
         self.spin_mi.setValue(24)
-        mi_container = QWidget()
-        mi_layout = QHBoxLayout(mi_container)
+        self.mi_container = QWidget()
+        mi_layout = QHBoxLayout(self.mi_container)
         mi_layout.setContentsMargins(0, 0, 0, 0)
         mi_layout.setSpacing(4)
         mi_layout.addWidget(self.combo_mi)
@@ -554,19 +556,20 @@ class HBReductionApp(QMainWindow):
         self.spin_height.setValue(196)
         self.spin_height.setSuffix(" m")
 
-        make_field(basic_layout, "单轴抗压强度 \u03c3ci (MPa):", self.spin_sigma_ci)
-        make_field(basic_layout, "地质强度指标 GSI:", gsi_container)
-        make_field(basic_layout, "岩体类型参数 mi:", mi_container)
+        make_field(basic_layout, "单轴抗压强度 \u03c3ci:", self.spin_sigma_ci)
+        make_field(basic_layout, "地质强度指标 GSI:", self.gsi_container)
+        make_field(basic_layout, "岩体类型参数 mi:", self.mi_container)
         make_field(basic_layout, "扰动系数 D:", self.spin_D)
-        make_field(basic_layout, "岩体容重 \u03b3 (MN/m\u00b3):", self.spin_gamma)
-        make_field(basic_layout, "开挖高度 H (m):", self.spin_height)
+        make_field(basic_layout, "岩体容重 \u03b3:", self.spin_gamma)
+        make_field(basic_layout, "开挖高度 H:", self.spin_height)
         basic_group.setLayout(basic_layout)
 
         # 弹性模量
         modulus_group = QGroupBox("弹性模量计算选项")
         modulus_layout = QGridLayout()
         modulus_layout.setColumnStretch(1, 1)
-        modulus_layout.setColumnMinimumWidth(0, 125)
+        modulus_layout.setHorizontalSpacing(8)
+        modulus_layout.setColumnMinimumWidth(0, 150)
         self.combo_modulus_method = make_combo(
             ["Hoek(2002) [推荐]", "Hoek&Diederichs(2006)", "模量比法", "Serafim&Pereira(1983)"]
         )
@@ -580,7 +583,7 @@ class HBReductionApp(QMainWindow):
         self.spin_MR.setValue(1000)
         self.spin_MR.setDecimals(1)
         make_field(modulus_layout, "计算方法:", self.combo_modulus_method)
-        make_field(modulus_layout, "完整岩石模量 Ei (MPa):", self.spin_Ei)
+        make_field(modulus_layout, "完整岩石模量 Ei:", self.spin_Ei)
         make_field(modulus_layout, "模量比 MR:", self.spin_MR)
         modulus_group.setLayout(modulus_layout)
 
@@ -588,7 +591,8 @@ class HBReductionApp(QMainWindow):
         option_group = QGroupBox("分析选项")
         option_layout = QGridLayout()
         option_layout.setColumnStretch(1, 1)
-        option_layout.setColumnMinimumWidth(0, 125)
+        option_layout.setHorizontalSpacing(8)
+        option_layout.setColumnMinimumWidth(0, 150)
         self.combo_application = make_combo(["隧道 (Tunnel)", "边坡 (Slope)"], current="隧道 (Tunnel)")
         self.spin_sigma3 = QDoubleSpinBox()
         self.spin_sigma3.setRange(0, 100)
@@ -598,7 +602,7 @@ class HBReductionApp(QMainWindow):
         self.spin_n_points = QSpinBox()
         self.spin_n_points.setRange(10, 200)
         self.spin_n_points.setValue(50)
-        make_field(option_layout, "最小主应力 \u03c33 (MPa):", self.spin_sigma3)
+        make_field(option_layout, "最小主应力 \u03c33:", self.spin_sigma3)
         make_field(option_layout, "工程类型:", self.combo_application)
         make_field(option_layout, "应变点数:", self.spin_n_points)
         option_group.setLayout(option_layout)
@@ -808,6 +812,51 @@ c′ = σ<sub>ci</sub> · [(1+2a)s + (1−a)m<sub>b</sub> σ<sub>3n</sub>] · (s
 </div>
 </body></html>
 """
+
+    def _apply_field_widths(self):
+        """窗口首次显示并布局完成后，强制统一控件宽度与右对齐。
+
+        每行控件右缘统一对齐到 R：
+          R = GSI 下拉框(150) + 间距(4) + GSI 数字框(86) = 240
+        - GSI / mi 行：下拉框 150、数字框 86、容器 240（横向并排）。
+        - 计算方法 / 工程类型下拉框：设为 240，使整行控件左右对齐。
+        - 其余 spin / 数字框：设为 240，右缘与 GSI 行最右侧控件对齐。
+        实现要点：三个输入组的标签列统一为 150px、水平间距统一 8px，使各组的
+        第 1 列起始 x 坐标一致。
+        注：QSS 的 min/max-width 在布局中常被 size policy 覆盖，且首次 show
+        时布局会重置最小宽度，因此必须在 showEvent 后强制设定。
+        """
+        # GSI / mi：下拉框 150，数字框 86（保持横向并排）
+        for cb, sp in ((self.combo_gsi, self.spin_gsi), (self.combo_mi, self.spin_mi)):
+            cb.setMinimumWidth(150)
+            cb.setMaximumWidth(150)
+            cb.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            sp.setMinimumWidth(86)
+            sp.setMaximumWidth(86)
+            sp.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # 每行右缘统一 R = 下拉框(150) + 间距(4) + 数字框(86)
+        R = self.combo_gsi.width() + 4 + self.spin_gsi.width()
+        # GSI / mi 容器固定为 R
+        for cont in (self.gsi_container, self.mi_container):
+            cont.setFixedWidth(R)
+            cont.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # 计算方法 / 工程类型下拉框设为 R，使整行控件左右对齐
+        for cb in (self.combo_modulus_method, self.combo_application):
+            cb.setMinimumWidth(R)
+            cb.setMaximumWidth(R)
+            cb.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # 其余控件右缘与 GSI 行最右侧控件对齐
+        for sp in (self.spin_sigma_ci, self.spin_D, self.spin_gamma,
+                   self.spin_height, self.spin_Ei, self.spin_MR,
+                   self.spin_sigma3, self.spin_n_points):
+            sp.setMinimumWidth(R)
+            sp.setMaximumWidth(R)
+            sp.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 窗口首次显示并布局完成后，强制统一控件宽度与右对齐
+        self._apply_field_widths()
 
     def run_computation(self):
         """执行计算并更新结果（文本 + 指标卡片 + 图表）"""
